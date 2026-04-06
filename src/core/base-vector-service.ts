@@ -9,6 +9,7 @@
 
 import { EmbeddingService } from './embedding-service';
 import { invokePluginTool, isPluginInitialized } from './plugin-registry';
+import { getCurrentClientId } from '../interfaces/request-context';
 
 const PLUGIN_NAME = 'agentic-tools';
 
@@ -168,6 +169,11 @@ export abstract class BaseVectorService<T> {
    * Store data in Vector DB with semantic embedding
    */
   async storeData(data: T): Promise<void> {
+    const clientId = getCurrentClientId();
+    if (!clientId) {
+      throw new Error('Missing client ID in context - required for multi-tenant isolation');
+    }
+
     const searchText = this.createSearchText(data);
     const id = this.extractId(data);
 
@@ -198,6 +204,7 @@ export abstract class BaseVectorService<T> {
         ...this.createPayload(data),
         searchText: searchText,
         hasEmbedding: true,
+        client_id: clientId,
       },
     });
   }
@@ -257,6 +264,13 @@ export abstract class BaseVectorService<T> {
     if (!document) {
       return null;
     }
+    
+    // Ensure tenant isolation
+    const clientId = getCurrentClientId();
+    if (clientId && document.payload.client_id !== clientId) {
+      return null;
+    }
+
     const data = this.payloadToData(document.payload);
     // Set the ID from the document
     (data as T & { id: string }).id = document.id;
@@ -267,6 +281,10 @@ export abstract class BaseVectorService<T> {
    * Delete data by ID
    */
   async deleteData(id: string): Promise<void> {
+    // Verify ownership before deleting
+    const existing = await this.getData(id);
+    if (!existing) return; // Not found or not owned by this tenant
+    
     await this.invokePlugin<void>('vector_delete', {
       collection: this.collectionName,
       id,
@@ -277,9 +295,18 @@ export abstract class BaseVectorService<T> {
    * Delete all data (preserves collection structure)
    */
   async deleteAllData(): Promise<void> {
-    await this.invokePlugin<void>('vector_delete_all', {
-      collection: this.collectionName,
-    });
+    const clientId = getCurrentClientId();
+    if (!clientId) throw new Error('Missing client ID for deletion');
+
+    // To preserve isolation, we must delete only vectors for the active tenant.
+    // Our plugin doesn't expose a direct delete_by_filter endpoint, so we get all IDs
+    // and delete them.
+    const allTenantData = await this.getAllData();
+    const ids = allTenantData.map(d => this.extractId(d));
+    
+    for (const id of ids) {
+      await this.invokePlugin<void>('vector_delete', { collection: this.collectionName, id });
+    }
   }
 
   /**
@@ -291,11 +318,21 @@ export abstract class BaseVectorService<T> {
     filter: Record<string, unknown>,
     limit: number = 100
   ): Promise<T[]> {
+    const clientId = getCurrentClientId();
+    if (!clientId) throw new Error('Missing client ID');
+
+    const isolatedFilter = {
+      must: [
+        { key: 'client_id', match: { value: clientId } },
+        ...(Object.keys(filter).length > 0 ? [filter] : [])
+      ]
+    };
+
     const documents = await this.invokePlugin<VectorDocument[]>(
       'vector_query',
       {
         collection: this.collectionName,
-        filter,
+        filter: isolatedFilter,
         limit,
       }
     );
@@ -311,16 +348,8 @@ export abstract class BaseVectorService<T> {
    * Get all data (limited)
    */
   async getAllData(limit?: number): Promise<T[]> {
-    const documents = await this.invokePlugin<VectorDocument[]>('vector_list', {
-      collection: this.collectionName,
-      limit: limit ?? 10000,
-    });
-
-    return documents.map(doc => {
-      const data = this.payloadToData(doc.payload);
-      (data as T & { id: string }).id = doc.id;
-      return data;
-    });
+    // Replace vector_list with queryWithFilter to ensure tenant isolation
+    return this.queryWithFilter({}, limit ?? 10000);
   }
 
   /**
@@ -388,6 +417,16 @@ export abstract class BaseVectorService<T> {
       throw new Error('Failed to generate query embedding for semantic search');
     }
 
+    const clientId = getCurrentClientId();
+    if (!clientId) throw new Error('Missing client ID in context for vector search');
+    
+    const isolatedFilter = {
+      must: [
+        { key: 'client_id', match: { value: clientId } },
+        ...(options.filter ? [options.filter] : [])
+      ]
+    };
+
     // Semantic search using vector similarity
     const semanticResults = await this.invokePlugin<SearchResult[]>(
       'vector_search',
@@ -396,7 +435,7 @@ export abstract class BaseVectorService<T> {
         embedding: queryEmbedding,
         limit: options.limit * 2, // Get more candidates for hybrid ranking
         scoreThreshold: 0.1, // Very permissive threshold for single-word queries
-        filter: options.filter,
+        filter: isolatedFilter,
       }
     );
 
@@ -407,7 +446,7 @@ export abstract class BaseVectorService<T> {
         collection: this.collectionName,
         keywords: queryKeywords,
         limit: options.limit * 2,
-        filter: options.filter,
+        filter: isolatedFilter,
       }
     );
 

@@ -74,7 +74,15 @@ export async function invokePluginTool(
   if (!pluginManager) {
     throw new Error('Plugin registry not initialized. Call initializePluginRegistry() at startup.');
   }
-  return pluginManager.invokeToolOnPlugin(plugin, tool, args);
+  
+  // PRD multi-tenant: Automatically inject the proper kubeconfig context
+  const { getCurrentClientId } = await import('../interfaces/request-context');
+  const clientId = getCurrentClientId();
+  const state: Record<string, unknown> = clientId 
+    ? { kubeconfig: `/etc/dot-ai/kubeconfigs/${clientId}.yaml` } 
+    : {};
+
+  return pluginManager.invokeToolOnPlugin(plugin, tool, args, state);
 }
 
 /**

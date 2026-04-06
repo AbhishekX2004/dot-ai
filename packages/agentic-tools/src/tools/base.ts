@@ -7,6 +7,7 @@
 import { exec, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ToolDefinition } from '../types';
+import { getPluginState } from '../context';
 
 const execAsync = promisify(exec);
 
@@ -108,8 +109,11 @@ export function escapeShellArg(arg: string): string {
 export function buildKubectlCommand(args: string[], config?: KubectlConfig): string {
   const cmdParts = ['kubectl'];
 
-  if (config?.kubeconfig) {
-    cmdParts.push('--kubeconfig', escapeShellArg(config.kubeconfig));
+  const state = getPluginState() || {};
+  const kubeconfig = config?.kubeconfig || (state.kubeconfig as string | undefined);
+
+  if (kubeconfig) {
+    cmdParts.push('--kubeconfig', escapeShellArg(kubeconfig));
   }
 
   if (config?.context) {
@@ -273,8 +277,11 @@ export interface HelmConfig {
 export function buildHelmCommand(args: string[], config?: HelmConfig): string {
   const cmdParts = ['helm'];
 
-  if (config?.kubeconfig) {
-    cmdParts.push('--kubeconfig', escapeShellArg(config.kubeconfig));
+  const state = getPluginState() || {};
+  const kubeconfig = config?.kubeconfig || (state.kubeconfig as string | undefined);
+
+  if (kubeconfig) {
+    cmdParts.push('--kubeconfig', escapeShellArg(kubeconfig));
   }
 
   if (config?.context) {

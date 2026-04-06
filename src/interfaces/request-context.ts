@@ -11,6 +11,7 @@ import type { UserIdentity } from './oauth/types';
 
 export interface RequestContext {
   identity?: UserIdentity;
+  clientId?: string;
 }
 
 export const requestContext = new AsyncLocalStorage<RequestContext>();
@@ -21,4 +22,12 @@ export const requestContext = new AsyncLocalStorage<RequestContext>();
  */
 export function getCurrentIdentity(): UserIdentity | undefined {
   return requestContext.getStore()?.identity;
+}
+
+/**
+ * Get the current client ID from the request context.
+ * Returns undefined when called outside a request context.
+ */
+export function getCurrentClientId(): string | undefined {
+  return requestContext.getStore()?.clientId;
 }

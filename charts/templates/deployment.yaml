@@ -259,7 +259,12 @@ spec:
           readOnly: true
 {{- end }}
 {{- end }}
-{{- if or (and $pluginsConfig (ne $pluginsConfig "[]")) (and $mcpServersConfig (ne $mcpServersConfig "[]")) }}
+{{- if .Values.kubeconfigsPVC }}
+        - name: kubeconfigs-dir
+          mountPath: /etc/dot-ai/kubeconfigs
+          readOnly: true
+{{- end }}
+{{- if or (and $pluginsConfig (ne $pluginsConfig "[]")) (and $mcpServersConfig (ne $mcpServersConfig "[]")) .Values.kubeconfigsPVC }}
       volumes:
 {{- if and $pluginsConfig (ne $pluginsConfig "[]") }}
       - name: plugins-config
@@ -271,5 +276,10 @@ spec:
         configMap:
           name: {{ include "dot-ai.fullname" . }}-mcp-servers
 {{- end }}
+{{- end }}
+{{- if .Values.kubeconfigsPVC }}
+      - name: kubeconfigs-dir
+        persistentVolumeClaim:
+          claimName: {{ .Values.kubeconfigsPVC }}
 {{- end }}
       terminationGracePeriodSeconds: 30

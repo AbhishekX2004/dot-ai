@@ -7,6 +7,7 @@
 
 import { InvokePayload, InvokeResponse } from '../types';
 import { TOOL_HANDLERS } from '../tools';
+import { contextStore } from '../context';
 
 /**
  * Handle invoke hook request
@@ -36,7 +37,7 @@ export async function handleInvoke(
   }
 
   try {
-    const result = await handler(args);
+    const result = await contextStore.run(state || {}, () => handler(args));
     return {
       sessionId,
       success: true,

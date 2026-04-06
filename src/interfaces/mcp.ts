@@ -711,8 +711,11 @@ export class MCPServer {
               authIdentity = authResult.identity;
             }
 
-            // Propagate identity to all downstream tool handlers (PRD #380)
-            await requestContext.run({ identity: authIdentity }, async () => {
+            // Propagate identity and client-id to all downstream tool handlers
+            const clientIdRaw = req.headers['x-client-id'];
+            const clientId = typeof clientIdRaw === 'string' ? clientIdRaw : (Array.isArray(clientIdRaw) ? clientIdRaw[0] : undefined);
+            
+            await requestContext.run({ identity: authIdentity, clientId }, async () => {
               // Parse request body for POST requests
               let body: unknown = undefined;
               if (req.method === 'POST') {
