@@ -257,7 +257,6 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
   protected createPayload(resource: ClusterResource): Record<string, unknown> {
     return {
       id: generateResourceId(resource.clientId, resource.namespace, resource.apiVersion, resource.kind, resource.name),
-      clientId: resource.clientId,
       namespace: resource.namespace,
       name: resource.name,
       kind: resource.kind,
@@ -275,7 +274,7 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
    */
   protected payloadToData(payload: Record<string, unknown>): ClusterResource {
     return {
-      clientId: (payload.clientId as string) || (payload.client_id as string) || 'unknown-cluster',
+      clientId: (payload.client_id as string) || 'unknown-cluster',
       namespace: (payload.namespace as string) || '',
       name: (payload.name as string) || '',
       kind: (payload.kind as string) || '',
