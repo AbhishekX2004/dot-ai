@@ -18,6 +18,7 @@ import { EmbeddingService } from './embedding-service';
  * Note: ID is constructed by MCP from namespace/apiVersion/kind/name
  */
 export interface ClusterResource {
+  clientId: string;                    // Client ID for multi-tenant isolation
   namespace: string;                    // Kubernetes namespace or '_cluster' for cluster-scoped
   name: string;                         // Resource name
   kind: string;                         // Resource kind (Deployment, Service, etc.)
@@ -156,12 +157,15 @@ export function buildEmbeddingText(resource: ClusterResource): string {
  * Format: namespace:apiVersion:kind:name
  */
 export function generateResourceId(
+  clientId: string,
   namespace: string,
   apiVersion: string,
   kind: string,
   name: string
 ): string {
-  return `${namespace}:${apiVersion}:${kind}:${name}`;
+  // Prepend the clientId to the string
+  const safeClientId = clientId || 'unknown-cluster';
+  return `${safeClientId}:${namespace}:${apiVersion}:${kind}:${name}`;
 }
 
 /**
@@ -238,6 +242,7 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
   protected extractId(resource: ClusterResource): string {
     // Always construct ID from components (ignore any provided id)
     const resourceId = generateResourceId(
+      resource.clientId,
       resource.namespace,
       resource.apiVersion,
       resource.kind,
@@ -251,7 +256,8 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
    */
   protected createPayload(resource: ClusterResource): Record<string, unknown> {
     return {
-      id: generateResourceId(resource.namespace, resource.apiVersion, resource.kind, resource.name),
+      id: generateResourceId(resource.clientId, resource.namespace, resource.apiVersion, resource.kind, resource.name),
+      clientId: resource.clientId,
       namespace: resource.namespace,
       name: resource.name,
       kind: resource.kind,
@@ -269,6 +275,7 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
    */
   protected payloadToData(payload: Record<string, unknown>): ClusterResource {
     return {
+      clientId: (payload.clientId as string) || (payload.client_id as string) || 'unknown-cluster',
       namespace: (payload.namespace as string) || '',
       name: (payload.name as string) || '',
       kind: (payload.kind as string) || '',
@@ -401,7 +408,7 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
    */
   async diffAndSync(incoming: ClusterResource[]): Promise<DiffSyncResult> {
     // Helper to get human-readable ID from resource
-    const getResourceKey = (r: ClusterResource) => generateResourceId(r.namespace, r.apiVersion, r.kind, r.name);
+    const getResourceKey = (r: ClusterResource) => generateResourceId(r.clientId, r.namespace, r.apiVersion, r.kind, r.name);
 
     // Helper to extract resource identifier
     const toResourceIdentifier = (r: ClusterResource): ResourceIdentifier => ({

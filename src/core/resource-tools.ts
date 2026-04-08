@@ -173,6 +173,7 @@ interface ResourceToolResult {
  */
 interface ResourceWithId {
   id?: string;
+  clientId?: string;
   namespace: string;
   name: string;
   kind: string;
@@ -223,6 +224,7 @@ export async function executeResourceTools(toolName: string, input: SearchResour
         // Transform results to a clean format for AI consumption
         const formattedResources = results.map(({ resource: r, score }) => ({
           id: (r as ResourceWithId).id,
+          clientId: (r as ResourceWithId).clientId,
           namespace: r.namespace,
           name: r.name,
           kind: r.kind,
@@ -264,6 +266,7 @@ export async function executeResourceTools(toolName: string, input: SearchResour
         // Transform results to a clean format for AI consumption
         const resources = results.map(r => ({
           id: (r as ResourceWithId).id,
+          clientId: (r as ResourceWithId).clientId,
           namespace: r.namespace,
           name: r.name,
           kind: r.kind,

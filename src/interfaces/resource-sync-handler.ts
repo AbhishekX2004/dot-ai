@@ -9,6 +9,7 @@ import { Logger } from '../core/error-handling';
 import { ResourceVectorService, ClusterResource, ResourceSyncRequest, generateResourceId } from '../core/resource-vector-service';
 import { RestApiResponse } from './rest-api';
 import { CircuitOpenError } from '../core/circuit-breaker';
+import { getCurrentClientId } from './request-context';
 
 // Global flag to track if resources collection has been initialized
 let resourcesCollectionInitialized = false;
@@ -66,6 +67,7 @@ function validateSyncRequest(body: unknown): { valid: boolean; errors: string[];
   }
 
   const b = body as Record<string, unknown>;
+  const clientId = getCurrentClientId() || 'unknown-cluster';
 
   // Default values
   const upserts: ClusterResource[] = [];
@@ -84,6 +86,7 @@ function validateSyncRequest(body: unknown): { valid: boolean; errors: string[];
         } else {
           const r = b.upserts[i] as Record<string, unknown>;
           upserts.push({
+            clientId,
             namespace: r.namespace as string,
             name: r.name as string,
             kind: r.kind as string,
@@ -127,8 +130,9 @@ function validateSyncRequest(body: unknown): { valid: boolean; errors: string[];
         if (delErrors.length > 0) {
           errors.push(...delErrors);
         } else {
-          // Construct ID from components
+          // Construct ID from components including clientId
           const deleteId = generateResourceId(
+            clientId,
             d.namespace as string,
             d.apiVersion as string,
             d.kind as string,
@@ -371,7 +375,7 @@ export async function handleResourceSync(
 
   // Handle upserts - process each resource
   for (const resource of upserts) {
-    const resourceId = generateResourceId(resource.namespace, resource.apiVersion, resource.kind, resource.name);
+    const resourceId = generateResourceId(resource.clientId, resource.namespace, resource.apiVersion, resource.kind, resource.name);
     try {
       await resourceService.upsertResource(resource);
       upserted++;
