@@ -560,6 +560,38 @@ export const routeDefinitions: RouteDefinition<
       500: UserManagementErrorSchema,
     },
   },
+
+  // ============================================
+  // Client Discovery Endpoint (multi-tenant UI)
+  // ============================================
+  {
+    path: '/api/v1/clients',
+    method: 'GET',
+    description:
+      'List all onboarded client cluster IDs that have synced resources into Qdrant. ' +
+      'No X-Client-Id header required. Used by the UI ClientSelector to populate the cluster dropdown.',
+    tags: ['Clients'],
+    response: z.object({
+      success: z.literal(true),
+      data: z.object({
+        clients: z.array(
+          z.object({
+            id: z.string().describe('Client cluster ID (value of X-Client-Id header)'),
+          })
+        ),
+        total: z.number().describe('Total number of distinct clients'),
+      }),
+      meta: z.object({
+        timestamp: z.string(),
+        requestId: z.string(),
+        version: z.string(),
+      }),
+    }),
+    errorResponses: {
+      503: ServiceUnavailableErrorSchema,
+      500: InternalServerErrorSchema,
+    },
+  },
 ];
 
 /**

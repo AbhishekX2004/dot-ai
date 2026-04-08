@@ -453,6 +453,8 @@ export class RestApiRouter {
       'GET:/api/v1/users': () => this.handleListUsers(req, res, requestId),
       'DELETE:/api/v1/users/:email': () =>
         this.handleDeleteUser(req, res, requestId, params.email),
+      // Client discovery (multi-tenant UI support)
+      'GET:/api/v1/clients': () => this.handleGetClients(req, res, requestId),
     };
 
     const handler = handlers[routeKey];
@@ -1283,6 +1285,116 @@ export class RestApiRouter {
         HttpStatus.INTERNAL_SERVER_ERROR,
         'NAMESPACES_ERROR',
         'Failed to retrieve namespaces',
+        { error: errorMessage }
+      );
+    }
+  }
+
+  /**
+   * Handle GET /api/v1/clients
+   * Returns all distinct client IDs that have synced resources into Qdrant.
+   * This endpoint is NOT scoped to a specific client (no X-Client-Id required);
+   * it is used by the UI ClientSelector to discover available tenants.
+   */
+  private async handleGetClients(
+    _req: IncomingMessage,
+    res: ServerResponse,
+    requestId: string
+  ): Promise<void> {
+    try {
+      this.logger.info('Processing get clients request', { requestId });
+
+      if (!isPluginInitialized()) {
+        await this.sendErrorResponse(
+          res,
+          requestId,
+          HttpStatus.SERVICE_UNAVAILABLE,
+          'PLUGIN_UNAVAILABLE',
+          'Plugin system not initialized'
+        );
+        return;
+      }
+
+      const RESOURCE_COLLECTION = 'resources';
+      const PLUGIN_NAME = 'agentic-tools';
+
+      // Query all resource points with no tenant filter to collect distinct client_id values.
+      // We use a high limit; in practice most deployments have < 5000 synced resources.
+      const queryResponse = await invokePluginTool(PLUGIN_NAME, 'vector_query', {
+        collection: RESOURCE_COLLECTION,
+        filter: { must: [] }, // match everything — no client_id restriction
+        limit: 10000,
+      });
+
+      if (!queryResponse.success) {
+        const err = queryResponse.error as { message?: string } | undefined;
+        const errMsg = err?.message || 'Query failed';
+
+        // If the collection doesn't exist yet no clients have synced — return empty list
+        if (errMsg.toLowerCase().includes('not found')) {
+          const response: RestApiResponse = {
+            success: true,
+            data: { clients: [], total: 0 },
+            meta: {
+              timestamp: new Date().toISOString(),
+              requestId,
+              version: this.config.version,
+            },
+          };
+          await this.sendJsonResponse(res, HttpStatus.OK, response);
+          return;
+        }
+
+        throw new Error(errMsg);
+      }
+
+      // The plugin returns { success, data: VectorDocument[] } nested inside result
+      type VectorDoc = { id: string; payload?: Record<string, unknown> };
+      const toolResult = queryResponse.result as { data?: VectorDoc[] } | null | undefined;
+      const documents: VectorDoc[] = toolResult?.data ?? [];
+
+      // Extract distinct client_id values from payloads
+      const clientIdSet = new Set<string>();
+      for (const doc of documents) {
+        const cid = doc.payload?.client_id;
+        if (cid && typeof cid === 'string') {
+          clientIdSet.add(cid);
+        }
+      }
+
+      const clients = Array.from(clientIdSet)
+        .sort()
+        .map(id => ({ id }));
+
+      const response: RestApiResponse = {
+        success: true,
+        data: { clients, total: clients.length },
+        meta: {
+          timestamp: new Date().toISOString(),
+          requestId,
+          version: this.config.version,
+        },
+      };
+
+      await this.sendJsonResponse(res, HttpStatus.OK, response);
+
+      this.logger.info('Get clients request completed', {
+        requestId,
+        clientCount: clients.length,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        'Get clients request failed',
+        error instanceof Error ? error : new Error(String(error)),
+        { requestId, errorMessage }
+      );
+      await this.sendErrorResponse(
+        res,
+        requestId,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        'CLIENTS_ERROR',
+        'Failed to retrieve client list',
         { error: errorMessage }
       );
     }
