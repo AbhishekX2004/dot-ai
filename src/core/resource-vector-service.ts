@@ -154,7 +154,7 @@ export function buildEmbeddingText(resource: ClusterResource): string {
 
 /**
  * Generate resource ID from components
- * Format: namespace:apiVersion:kind:name
+ * Format: clientId:namespace:apiVersion:kind:name
  */
 export function generateResourceId(
   clientId: string,
@@ -303,7 +303,7 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
 
   /**
    * Get a resource by ID
-   * Accepts human-readable ID (namespace:apiVersion:kind:name) and converts to UUID
+   * Accepts human-readable ID (clientId:namespace:apiVersion:kind:name) and converts to UUID
    */
   async getResource(id: string): Promise<ClusterResource | null> {
     const uuid = generateResourceUuid(id);
@@ -312,7 +312,7 @@ export class ResourceVectorService extends BaseVectorService<ClusterResource> {
 
   /**
    * Delete a resource by ID (idempotent - ignores not found)
-   * Accepts human-readable ID (namespace:apiVersion:kind:name) and converts to UUID
+   * Accepts human-readable ID (clientId:namespace:apiVersion:kind:name) and converts to UUID
    */
   async deleteResource(id: string): Promise<void> {
     try {

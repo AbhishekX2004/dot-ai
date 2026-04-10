@@ -74,7 +74,7 @@ export const QUERY_RESOURCES_TOOL: AITool = {
 This is the primary tool for finding resource instances after using search_capabilities to identify relevant kinds.
 
 Available payload fields for filtering:
-- id: string (format: namespace:apiVersion:kind:name)
+- id: string (format: clientId:namespace:apiVersion:kind:name)
 - namespace: string (e.g., "default", "kube-system", "_cluster" for cluster-scoped)
 - name: string (resource name)
 - kind: string (e.g., "Deployment", "Service", "Pod", "StatefulSet")

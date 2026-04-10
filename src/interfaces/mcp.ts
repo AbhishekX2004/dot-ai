@@ -96,6 +96,7 @@ import { context, trace } from '@opentelemetry/api';
 import { getTelemetry, McpClientInfo } from '../core/telemetry';
 import { PluginManager } from '../core/plugin-manager';
 import { isPluginInitialized } from '../core/plugin-registry';
+import { getCurrentClientId } from './request-context';
 
 /**
  * Tool handler function type
@@ -206,14 +207,31 @@ export class MCPServer {
     tags?: string[]
   ): void {
     const restTracedHandler = async (args: ToolArgs) => {
-      return await withToolTracing(name, args, handler, {
-        mcpClient: { name: 'http', version: 'rest-api' },
-      });
+      const targetClientId = args.targetClientId as string | undefined;
+      const effectiveClientId = getCurrentClientId() || targetClientId;
+
+      return await requestContext.run(
+        { identity: getCurrentIdentity(), clientId: effectiveClientId },
+        async () => {
+          return await withToolTracing(name, args, handler, {
+            mcpClient: { name: 'http', version: 'rest-api' },
+          });
+        }
+      );
     };
+
+    const restSchema = JSON.parse(JSON.stringify(inputSchema));
+    if (restSchema.type === 'object' && restSchema.properties) {
+      restSchema.properties.targetClientId = {
+        type: 'string',
+        description: 'Optional: Client ID. To decipher from user prompt when exploring resources of a specific client.'
+      };
+    }
+
     this.restRegistry.registerTool({
       name,
       description,
-      inputSchema: inputSchema as Record<string, z.ZodSchema>,
+      inputSchema: restSchema as Record<string, z.ZodSchema>,
       handler: restTracedHandler as (...args: unknown[]) => Promise<unknown>,
       category,
       tags,
@@ -232,34 +250,51 @@ export class MCPServer {
     handler: ToolHandler
   ): void {
     const mcpTracedHandler = async (args: ToolArgs) => {
-      // RBAC enforcement (PRD #392) — invocation-time check as second layer of defense
-      const identity = getCurrentIdentity();
-      if (identity) {
-        const rbacResult = await checkToolAccess(identity, { toolName: name });
-        if (!rbacResult.allowed) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'FORBIDDEN',
-                  message: `Access denied: tool '${name}' not authorized for user '${identity.email}'`,
-                }),
-              },
-            ],
-          };
+      const targetClientId = args.targetClientId as string | undefined;
+      const effectiveClientId = getCurrentClientId() || targetClientId;
+
+      return await requestContext.run(
+        { identity: getCurrentIdentity(), clientId: effectiveClientId },
+        async () => {
+          // RBAC enforcement (PRD #392) — invocation-time check as second layer of defense
+          const identity = getCurrentIdentity();
+          if (identity) {
+            const rbacResult = await checkToolAccess(identity, { toolName: name });
+            if (!rbacResult.allowed) {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      error: 'FORBIDDEN',
+                      message: `Access denied: tool '${name}' not authorized for user '${identity.email}'`,
+                    }),
+                  },
+                ],
+              };
+            }
+          }
+          return await withToolTracing(name, args, handler, {
+            mcpClient: session.clientInfo,
+          });
         }
-      }
-      return await withToolTracing(name, args, handler, {
-        mcpClient: session.clientInfo,
-      });
+      );
     };
+
+    const mcpSchema = JSON.parse(JSON.stringify(inputSchema));
+    if (mcpSchema.type === 'object' && mcpSchema.properties) {
+      mcpSchema.properties.targetClientId = {
+        type: 'string',
+        description: 'Optional: Client ID. To decipher from user prompt when exploring resources of a specific client.'
+      };
+    }
+
     /* eslint-disable @typescript-eslint/no-explicit-any -- MCP SDK type compatibility */
     server.registerTool(
       name,
       {
         description,
-        inputSchema: inputSchema as any,
+        inputSchema: mcpSchema as any,
       },
       mcpTracedHandler as any
     );
